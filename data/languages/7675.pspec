@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<processor_spec>
+  <programcounter register="PC"/>
+  <default_symbols>
+    <symbol name="DDR1" address="0"/>
+    <symbol name="DDR2" address="1"/>
+    <symbol name="PORT1" address="2"/>
+    <symbol name="PORT2" address="3"/>
+    <symbol name="DDR3" address="4"/>
+    <symbol name="DDR4" address="5"/>
+    <symbol name="PORT3" address="6"/>
+    <symbol name="PORT4" address="7"/>
+    <symbol name="T1_CSR" address="8"/>
+    <symbol name="T1T2_CLK_HI" address="9"/>
+    <symbol name="T1T2_CLK_LO" address="A"/>
+    <symbol name="T1_OC_HI" address="B"/>
+    <symbol name="T1_OC_LO" address="C"/>
+    <symbol name="T1_IC_HI" address="D"/>
+    <symbol name="T1_IC_LO" address="E"/>
+    <symbol name="PORT3_CSR" address="F"/>
+    <symbol name="SCI_BAUD" address="10"/>
+    <symbol name="SCI_SCR" address="11"/>
+    <symbol name="SCI_RX" address="12"/>
+    <symbol name="SCI_TX" address="13"/>
+    <symbol name="RAM_CTL" address="14"/>
+    <symbol name="DDR5" address="15"/>
+    <symbol name="PORT5" address="16"/>
+
+    <symbol name="T2_CSR" address="18"/>
+    <symbol name="T3_CSR_0" address="19"/>
+    <symbol name="T3_CR_1" address="1A"/>
+    <symbol name="T2_OC_HI" address="1B"/>
+    <symbol name="T2_OC_LO" address="1C"/>
+    <symbol name="T2_IC_HI" address="1D"/>
+    <symbol name="T2_IC_LO" address="1E"/>
+    <symbol name="ADC_CTL" address="1F"/>
+    <symbol name="ADC_DATA" address="20"/>
+
+    <symbol name="PA_CTL" address="24"/>
+    <symbol name="PA_CNT" address="25"/>
+    <symbol name="RTI_CTL" address="26"/>
+    <symbol name="RTI_FREQ" address="27"/>
+
+    <symbol name="T3_1_CLK_HI" address="29"/>
+    <symbol name="T3_1_CLK_LO" address="2A"/>
+    <symbol name="T3_OC_HI" address="2B"/>
+    <symbol name="T3_OC_LO" address="2C"/>
+    <symbol name="T3_2_CLK_HI" address="2D"/>
+    <symbol name="T3_2_CLK_LO" address="2E"/>
+    <symbol name="PORT6" address="2F"/>
+
+  </default_symbols>
+  <default_memory_blocks>
+    <memory_block name="IO" start_address="0" length="0x40" initialized="false"/>
+    <memory_block name="LOW_RAM" start_address="0x40" length="0x70" initialized="false"/>
+</default_memory_blocks>
+</processor_spec>
