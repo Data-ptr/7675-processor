@@ -2,6 +2,7 @@
 
 <processor_spec>
   <programcounter register="PC"/>
+
   <default_symbols>
     <symbol name="DDR1" address="0"/>
     <symbol name="DDR2" address="1"/>
@@ -49,10 +50,10 @@
     <symbol name="T3_2_CLK_HI" address="2D"/>
     <symbol name="T3_2_CLK_LO" address="2E"/>
     <symbol name="PORT6" address="2F"/>
-
   </default_symbols>
+
   <default_memory_blocks>
-    <memory_block name="IO" start_address="0" length="0x40" initialized="false"/>
-    <memory_block name="LOW_RAM" start_address="0x40" length="0x70" initialized="false"/>
-</default_memory_blocks>
+    <memory_block name="IO" start_address="0" length="0x40" initialized="true"/>
+    <memory_block name="RAM" start_address="0x40" length="0x200" initialized="true"/>
+  </default_memory_blocks>
 </processor_spec>

@@ -3,16 +3,31 @@
 define endian=big;
 define alignment=1;
 
+@define SERIALRXI_VECTOR "0xFFE0"
+@define FFE2_VECTOR "0xFFE2"
+@define RTI_VECTOR  "0xFFE4"
+@define FFE6_VECTOR "0xFFE6"
+@define FFE8_VECTOR "0xFFE8"
+@define FFEA_VECTOR "0xFFEA"
+@define OC_3_VECTOR "0xFFEC"
+@define OC_2_VECTOR "0xFFEE"
+@define OC_1_VECTOR "0xFFF0"
+@define FFF2_VECTOR "0xFFF2"
+@define IC_2_VECTOR "0xFFF4"
+@define IC_1_VECTOR "0xFFF6"
+@define FFF8_VECTOR "0xFFF8"
+@define FFFA_VECTOR "0xFFFA"
+@define FFFC_VECTOR "0xFFFC"
+@define RST_VECTOR  "0xFFFE"
+
 define space RAM      type=ram_space      size=2  default;
 define space register type=register_space size=1;
 
-define register offset=0x00 size=1 [ A B X ];
+define register offset=0x00 size=1 [ A B ];
 define register offset=0x00 size=2 [ D ];
-define register offset=0x10 size=2 [ Y ];
+define register offset=0x10 size=2 [ X Y ];
 define register offset=0x20 size=2 [ PC SP ];
 define register offset=0x30 size=1 [ H I N Z V C ];	# status bits
-
-define RAM offset=0x3ffc size=2 [ SWI_VECTOR ];
 
 #TOKENS
 
@@ -21,192 +36,301 @@ define RAM offset=0x3ffc size=2 [ SWI_VECTOR ];
 #  ...
 #;
 
-define token opbyte (8)
-   op     = (0,7)
-   op4_7	= (4,7)
-   op4_6	= (4,6)
-   n		  = (1,3)
-   bit_0  = (0,0)
-   op_hi  = (4,7)
-   op_lo  = (0,3)
+define token opbyte8 (8)
+   op      = (0,7)
+   op_hi   = (4,7)
+   op_lo   = (0,3)
+;
+
+define token opbyte16 (16)
+   op_a    = (8,15)
+   op_a_hi = (12,15)
+   op_a_lo = (8,11)
+   op_b    = (0,7)
+   op_b_hi = (4,7)
+   op_b_lo = (0,3)
 ;
 
 define token data8 (8)
-   imm8		= (0,7)
-   rel		= (0,7) signed
+   byte8	 = (0,7)
+   rel		 = (0,7) signed
 ;
 
-define token data (16)
-	imm16   = (0,15)
+define token data16 (16)
+	byte16   = (0,15)
+  byte16_a = (0,7)
+  byte16_b = (8,15)
+;
+
+define token data24 (24)
+   byte_a  = (16,23)
+   byte_b  = (8,15)
+   rel_2   = (0,7) signed
 ;
 
 ################################################################
 # Psuedo Instructions
 ################################################################
 
-define pcodeop readIRQ;
+#define pcodeop readIRQ;
 
 ################################################################
 
 #Table header
-#      #Display   #Bit Pattern                    #Disassembly                  #Semantics
+#      #Display   #Bit Pattern                    #Action                       #Semantics
 #TABLE:DISPLAY is (MATCH & MATCH | MATCH); MATCH  [ reloc = inst_next + FEILD ] { export *:N FIELD; }
 ###
+
 REL:    reloc		is rel	[ reloc = inst_next + rel; ] { export *:2 reloc; }
 
-OP1: "#"imm8
-is(
-    (
-      op_hi=0x8 & (
-        op_lo<0x3 |
-        (op_lo>0x3 & op_lo<0x7) |
-        (op_lo>0x7 & op_lo<0xC)
-      )
-    ) | (
-      op_hi=0xC & (
-        op_lo<0x3 |
-        (op_lo>0x3 & op_lo<0xC)
-      )
-    )
-  );
-imm8
+#Immediate 8 - 02, 03, & 0x8*
+IMM8: "#"byte8
+is ((op=0x80 | op=0x81 | op=0x82 | op=0x84 | op=0x85 | op=0x86 | op=0x88 | op=0x89 | op=0x8A | op=0x8B) |
+(op=0xC0 | op=0xC1 | op=0xC2 | op=0xC4 | op=0xC5 | op=0xC6 | op=0xC7 | op=0xC8 | op=0xC9 | op=0xCA | op=0xCB));
+byte8
 {
-  tmp:1 = imm8;
-  export tmp;
+  #tmp:1 = byte8;
+  export *[const]:1 byte8;
 } #IMMEDIATE/8
 
-OP1:"#"imm16
-is(
-  op=0x1C | (
-    (op_hi=0x8 | op_hi=0xC) &
-    (op_lo=0x3 | op_lo=0xC | op_lo=0xE)
-  )
-);
-imm16
+IMM8: "#"byte16_a
+is (op=0x02 | op=0x03); byte16_a { tmp:1 = byte16_a; export tmp; } #IMMEDIATE/8
+
+#Immediate 16
+IMM16: "#"byte16
+is (op=0x1C | op=0x83 | op=0x8C | op=0x8E | op=0xC3 | op=0xCC | op=0xCE);
+byte16
 {
-  tmp:2 = imm16;
-  export *:1 tmp;
+  tmp:2 = byte16;
+  export tmp;
 } #IMMEDIATE/16
 
-OP1:    imm16,X is op4_6=5 & X; imm16 { tmp:2 = imm16 + zext(X); export *:1 tmp; }   #INDEXED/16
-OP1:    imm8,X  is op4_6=6 & X; imm8  { tmp:2 = imm8 + zext(X); export *:1 tmp; }    #INDEXED/8
-OP1:    X			  is op4_6=7 & X			  { tmp:2 = zext(X); export *:1 tmp; }
-
-#ADDR:   imm8 		is op4_6=3;     imm8	{ export *:1 imm8; }
-#ADDR:   imm16   is op4_6=4;     imm16 { export *:1 imm16; }
-ADDR:   imm16   is op=0x8E;     imm16 { export *:1 imm16; }
-ADDR:   imm16   is (op=0x1F | op_hi=0x7 | op_hi=0xB | op_hi=0xF); imm16 { export *:1 imm16; } #EXTENDED/16
-
-ADDRI:  imm16,X is op4_6=5 & X; imm16 { tmp:2 = imm16 + zext(X); export tmp; }
-ADDRI:  imm8,X  is op4_6=6 & X; imm8  { tmp:2 = imm8 + zext(X); export tmp; }
-ADDRI:  X			  is op4_6=7 & X			  { tmp:2 = zext(X); export tmp; }
-
-DIRECT: imm8    is (op=0x14 | op=0x15 | op=0x1D | op_hi=0x9 | op_hi=0xD); imm8 { export *:1 imm8; } #DIRECT/8
-#DIRECT: imm16    is (op=0x02 | op=0x03); imm16 { export *:2 imm16; } #DIRECT/16
-
-:ADCA OP1     is ((op_hi>0x7 & op_hi<0xC) & op_lo=0x9) ... & OP1
+IMM16: "#"byte16
+is (op_a=0xCD & (op_b=0x08 | op_b=0x09 | op_b=0x1A | op_b=0x3A | op_b=0x8C | op_b=0xCE | op_b=0xDF | op_b=0xEE));
+byte16
 {
-	 local op1 = OP1;
+  tmp:2 = byte16;
+  export tmp;
+} #IMMEDIATE/16
 
-	# compute half carry
-	local halfop1 = op1 & 0xF;
-	local halfA = A & 0xF;
-	local halfresult = halfop1 + halfA + C;
-	H = (halfresult >> 4) & 1;
+#DIRECT/8
+PTR8: byte16_b is (op=0x02 | op=0x03); byte16_b { export *:1 byte16_b; }
+#DIRECT/8
+PTR8: byte8    is (op=0x14 | op=0x15 | op=0x1D | op_hi=0x9 | op_hi=0xD); byte8 { export *:1 byte8; }
 
-	local result = A + op1;
-	local tmpC = carry(A, op1);
+#EXTENDED/16
+PTR8: byte16   is (op_hi=0x7 | op_hi=0xB | op_hi=0xF); byte16 { export *:1 byte16; }
 
-	A = result + C;
-	C = carry(result, C);
-	C = C | tmpC;
+#INDEXED-X/8
+PTR8: byte8,X  is (op_hi=0x6 | op_hi=0xA | op_hi=0xE) & X; byte8 { tmp:2 = byte8 + X; export *:1 tmp; }
+
+#INDEXED-Y/8
+PTR8: Y is ((op_a_hi=0xA | op_a_hi=0xE) & op_b=0x80) & Y { export *:1 Y; }
+
+#2-byte data [ DIRECT ]
+PTR16: byte8  is (op=0xD3 | op=0x93); byte8 { export *:2 byte8; }      #ADDD, SUBD
+PTR16: byte8  is (op=0x1D | op=0x9C); byte8 { export *:2 byte8; }      #CPD, CPX
+PTR16: byte8  is (op=0xDC | op=0xDD); byte8 { export *:2 byte8; }      #LDD, STD
+PTR16: byte8  is (op=0xDE | op=0xDF); byte8 { export *:2 byte8; }      #LDX, STX
+PTR16: byte8  is (op=0x9E | op=0x9F); byte8 { export *:2 byte8; }      #LDS, STS
+PTR16: byte8  is (op_a=0xCD & op_b=0xDF); byte8 { export *:2 byte8; }  #STY
+
+# [ EXTENDED ]
+PTR16: byte16 is (op=0xF3 | op=0xB3); byte16 { export *:2 byte16; }    #ADDD, SUBD
+PTR16: byte16 is (op=0x1F | op=0xBC); byte16 { export *:2 byte16; }    #CPD, CPX
+PTR16: byte16 is (op=0xFC | op=0xFD); byte16 { export *:2 byte16; }    #LDD, STD
+PTR16: byte16 is (op=0xFE | op=0xFF); byte16 { export *:2 byte16; }    #LDX, STX
+PTR16: byte16 is (op=0xBE | op=0xBF); byte16 { export *:2 byte16; }    #LDS, STS
+
+# [ INDEXED X ]
+PTR16: byte8,X  is (op=0xE3 | op=0xA3) & X; byte8 { tmp:2 = byte8 + X; export *:2 tmp; }      #ADDD, SUBD
+PTR16: byte8,X  is (op=0xAC) & X; byte8 { tmp:2 = byte8 + X; export *:2 tmp; }                #CPX
+PTR16: byte8,X  is (op=0xEC | op=0xED) & X; byte8 { tmp:2 = byte8 + X; export *:2 tmp; }      #LDD, STD
+PTR16: byte8,X  is (op=0xEE | op=0xEF) & X; byte8 { tmp:2 = byte8 + X; export *:2 tmp; }      #LDX, STX
+PTR16: byte8,X  is (op=0xAE | op=0xAF) & X; byte8 { tmp:2 = byte8 + X; export *:2 tmp; }      #LDS, STS
+PTR16: byte8,X  is (op_a=0xCD & op_b=0xEE) & X; byte8 { tmp:2 = byte8 + X; export *:2 tmp; }  #LDY
+
+# [ INDEXED Y ]
+PTR16: Y  is ((op_a=0xE3 | op_a=0xA3) & op_b=0x80) & Y { export *:2 Y; }      #ADDD, SUBD
+PTR16: Y  is (op_a=0xAC & op_b=0x80) & Y               { export *:2 Y; }      #CPX
+PTR16: Y  is ((op_a=0xEC | op_a=0xED) & op_b=0x80) & Y { export *:2 Y; }      #LDD, STD
+PTR16: Y  is ((op_a=0xEE | op_a=0xEF) & op_b=0x80) & Y { export *:2 Y; }      #LDX, STX
+PTR16: Y  is ((op_a=0xAE | op_a=0xAF) & op_b=0x80) & Y { export *:2 Y; }      #LDS, STS
+
+ADDR:   byte8 		is op=0x9D;     byte8	{ export *:1 byte8; }
+ADDR:   byte16   is (op=0x7E | op=0xBD); byte16 { export *:1 byte16; }
+
+ADDRI:  byte8,X  is (op=0x6E | op=0xAD) & X; byte8  { tmp:2 = byte8 + X; export tmp; }
+
+#4-byte instruction
+PTR8: byte_a is (op=0x87 | op=0x8F); byte_a { export *:1 byte_a; }
+PTR8: byte_a,X  is (op=0xCF) & X; byte_a { tmp:2 = byte_a + X; export *:1 tmp; }
+
+IMM8: "#"byte_b is (op=0x87 | op=0x8F | op=0xCF); byte_b
+{
+  tmp:1 = byte_b;
+  export tmp;
+}
+
+REL: reloc is (op=0x87 | op=0x8F | op=0xCF); rel_2 [ reloc = inst_next + rel_2; ] { export *:2 reloc; }
+
+:OIM PTR8, IMM8 is op=0x3 ... & PTR8 & IMM8
+{
+  PTR8 = PTR8 | IMM8;
+}
+
+macro adc8(reg, data)
+{
+  local op1 = data;
+
+  # compute half carry
+  local halfop1 = op1 & 0xF;
+  local halfReg = reg & 0xF;
+  local halfresult = halfop1 + halfReg + C;
+  H = (halfresult >> 4) & 1;
+
+  local result = reg + data;
+  local tmpC = carry(reg, data);
+
+  reg = result + C;
+  C = carry(result, C);
+  C = C | tmpC;
+  Z = (reg == 0);
+  N = (reg s< 0);
+}
+
+macro add8(reg, data)
+{
+  local op1 = data;
+
+  # compute half carry
+  local halfop1 = op1 & 0xF;
+  local halfreg = reg & 0xF;
+  local halfresult = halfop1 + halfreg;
+  H = (halfresult >> 4) & 1;
+
+  C = carry(reg, op1);
+  reg = reg + op1;
+  Z = (reg == 0);
+  N = (reg s< 0);
+}
+
+macro add16(reg, data)
+{
+  local op1 = data;
+
+  # compute half carry
+  local halfop1 = op1 & 0xFF;
+  local halfreg = reg & 0xFF;
+  local halfresult = halfop1 + halfreg;
+  local tmp:2 = (halfresult >> 8) & 1;
+  H = tmp:1;
+
+  C = carry(reg, op1);
+  reg = reg + op1;
+  Z = (reg == 0);
+  N = (reg s< 0);
+}
+
+:ABA is op=0x1B
+{
+  add8(A, B);
+}
+
+:ABX is op=0x3A
+{
+  add16(X, zext(B));
+}
+
+:ABY is (op_a=0xCD & op_b=0x3A)
+{
+  add16(Y, zext(B));
+}
+
+:ADCA IMM8 is op=0x89 ... & IMM8
+{
+  adc8(A, IMM8);
+}
+
+:ADCA PTR8 is (op=0x99 | op=0xB9 | op=0xA9) & PTR8
+{
+  adc8(A, PTR8);
+}
+
+:ADCB IMM8 is op=0xC9 ... & IMM8
+{
+  adc8(B, IMM8);
+}
+
+:ADCB PTR8 is (op=0xD9 | op=0xF9 | op=0xE9) & PTR8
+{
+  adc8(B, PTR8);
+}
+
+:ADDA IMM8 is op=0x8B ... & IMM8
+{
+  add8(A, IMM8);
+}
+
+:ADDA PTR8 is (op=0x9B | op=0xAB | op=0xBB) & PTR8
+{
+  add8(A, PTR8);
+}
+
+:ADDB IMM8 is op=0xCB ... & IMM8
+{
+	add8(B, IMM8);
+}
+
+:ADDB PTR8 is (op=0xDB | op=0xEB | op=0xFB) & PTR8
+{
+	add8(B, PTR8);
+}
+
+:ADDD IMM16 is (op=0xC3) ... & IMM16
+{
+	add16(D, IMM16);
+}
+
+:ADDD PTR16 is (op=0xD3 | op=0xE3 | op=0xF3) ... & PTR16
+{
+	add16(D, PTR16);
+}
+
+:AIM PTR8, IMM8 is op=0x2 ... & IMM8 & PTR8
+{
+  PTR8 = PTR8 & IMM8;
+}
+
+:ANDA IMM8 is op=0x84 ... & IMM8
+{
+	A = A & IMM8;
 	Z = (A == 0);
 	N = (A s< 0);
 }
 
-:ADCB OP1     is ((op_hi>0xB & op_hi<0xF) & op_lo=0x9) ... & OP1
+:ANDA PTR8 is (op=0x94 | op=0xA4 | op=0xB4) & PTR8
 {
-	 local op1 = OP1;
-
-	# compute half carry
-	local halfop1 = op1 & 0xF;
-	local halfB = B & 0xF;
-	local halfresult = halfop1 + halfB + C;
-	H = (halfresult >> 4) & 1;
-
-	local result = B + op1;
-	local tmpC = carry(B, op1);
-
-	B = result + C;
-	C = carry(result, C);
-	C = C | tmpC;
-	Z = (B == 0);
-	N = (B s< 0);
-}
-
-:ADDA OP1     is ((op_hi>0x7 & op_hi<0xC) & op_lo=0xB) ... & OP1
-{
-	local op1 = OP1;
-
-	# compute half carry
-	local halfop1 = op1 & 0xF;
-	local halfA = A & 0xF;
-	local halfresult = halfop1 + halfA;
-	H = (halfresult >> 4) & 1;
-
-	C = carry(A, op1);
-	A = A + op1;
+	A = A & PTR8;
 	Z = (A == 0);
 	N = (A s< 0);
 }
 
-:ADDB OP1     is ((op_hi>0xB & op_hi<=0xF) & op_lo=0xB) ... & OP1
+:ANDB IMM8 is op=0xC4 ... & IMM8
 {
-	local op1 = OP1;
-
-	# compute half carry
-	local halfop1 = op1 & 0xF;
-	local halfB = B & 0xF;
-	local halfresult = halfop1 + halfB;
-	H = (halfresult >> 4) & 1;
-
-	C = carry(B, op1);
-	B = B + op1;
+	B = B & IMM8;
 	Z = (B == 0);
 	N = (B s< 0);
 }
 
-#:ADDD OP1     is ((op_hi>0xB & op_hi<=0xF) & op_lo=0x3) ... & OP1
-#{
-#	local op1 = OP1;
-#
-#	# compute half carry
-#	local halfop1 = op1 & 0xFF;
-#	local halfD = D & 0xFF;
-#	local halfresult = halfop1 + halfD;
-#	H = (halfresult >> 8) & 1;
-#
-#	C = carry(D, op1);
-#	D = D + op1;
-#	Z = (D == 0);
-#	N = (D s< 0);
-#}
-
-:ANDA OP1     is ((op_hi>0x7 & op_hi<0xC) & op_lo=0x4) ... & OP1
+:ANDB PTR8 is (op=0xD4 | op=0xE4 | op=0xF4) & PTR8
 {
-	A = A & OP1;
-	Z = (A == 0);
-	N = (A s< 0);
-}
-
-:ANDB OP1     is ((op_hi>0xB & op_hi<=0xF) & op_lo=0x4) ... & OP1
-{
-	B = B & OP1;
+	B = B & PTR8;
 	Z = (B == 0);
 	N = (B s< 0);
 }
 
-:ASLA		is op=0x48
+:ASLA	is op=0x48
 {
 	C = A >> 7;
 	A = A << 1;
@@ -214,7 +338,7 @@ DIRECT: imm8    is (op=0x14 | op=0x15 | op=0x1D | op_hi=0x9 | op_hi=0xD); imm8 {
 	N = (A s< 0);
 }
 
-:ASLB		is op=0x58
+:ASLB	is op=0x58
 {
 	C = B >> 7;
 	B = B << 1;
@@ -222,25 +346,26 @@ DIRECT: imm8    is (op=0x14 | op=0x15 | op=0x1D | op_hi=0x9 | op_hi=0xD); imm8 {
 	N = (B s< 0);
 }
 
-:ASLD		is op=0x05
+:ASLD is op=0x05
 {
-	C = X >> 15;
+  local tmp:2 = D >> 15;
+	C = tmp:1;
 	D = D << 1;
 	Z = (D == 0);
 	N = (D s< 0);
 }
 
-:ASL OP1	is (op=0x68 | op=0x78) ... & OP1
+:ASL PTR8 is (op=0x68 | op=0x78) & PTR8
 {
-	local tmp = OP1;
+	local tmp = PTR8;
 	C = tmp >> 7;
 	tmp = tmp << 1;
-	OP1 = tmp;
+	PTR8 = tmp;
 	Z = (tmp == 0);
 	N = (tmp s< 0);
 }
 
-:ASRA		is op=0x47
+:ASRA	is op=0x47
 {
 	C = A & 1;
 	A = A s>> 1;
@@ -248,7 +373,7 @@ DIRECT: imm8    is (op=0x14 | op=0x15 | op=0x1D | op_hi=0x9 | op_hi=0xD); imm8 {
 	N = (A s< 0);
 }
 
-:ASRB		is op=0x57
+:ASRB	is op=0x57
 {
 	C = B & 1;
 	B = B s>> 1;
@@ -256,47 +381,44 @@ DIRECT: imm8    is (op=0x14 | op=0x15 | op=0x1D | op_hi=0x9 | op_hi=0xD); imm8 {
 	N = (B s< 0);
 }
 
-:ASR OP1	is (op=0x67 | op=0x77) ... & OP1
+:ASR PTR8 is (op=0x67 | op=0x77) & PTR8
 {
-	local tmp = OP1;
+	local tmp = PTR8;
 	C = tmp & 1;
 	tmp = tmp s>> 1;
-	OP1 = tmp;
+  PTR8 = tmp;
 	Z = (tmp == 0);
 	N = (tmp s< 0);
 }
 
-:BCC REL	is op=0x24;REL
+:BCC REL is op=0x24; REL
 {
 	if (C == 0) goto REL;
 }
 
-:BCLR n,DIRECT	is op4_7=1 & bit_0=1 & n; DIRECT {
-	local mask = ~(1 << n);
-	DIRECT = DIRECT & mask;
-}
-
-:BCS REL	is op=0x25;REL
+:BCS REL is op=0x25; REL
 {
 	if (C) goto REL;
 }
 
-:BEQ REL	is op=0x27;REL
+:BEQ REL is op=0x27; REL
 {
 	if (Z) goto REL;
 }
 
-#:BHCC REL	is op=0x28;REL
-#{
-#	if (H == 0) goto REL;
-#}
+:BGE REL is op=0x2C; REL
+{
+	local tmp = N == V;
+	if (tmp) goto REL;
+}
 
-#:BHCS REL	is op=0x29;REL
-#{
-#	if (H) goto REL;
-#}
+:BGT REL is op=0x2E; REL
+{
+	local tmp = !Z && N == V;
+	if (tmp) goto REL;
+}
 
-:BHI REL	is op=0x22;REL
+:BHI REL is op=0x22; REL
 {
 	local tmp = C + Z;
 	if (tmp == 0) goto REL;
@@ -304,87 +426,100 @@ DIRECT: imm8    is (op=0x14 | op=0x15 | op=0x1D | op_hi=0x9 | op_hi=0xD); imm8 {
 
 #:BHS REL	is op=0x24;REL		See BCC
 
-:BIH REL	is op=0x2F;REL
+:BITA IMM8 is op=0x85 ... & IMM8
 {
-	tmp:1 = readIRQ();
-	if (tmp) goto REL;
-}
-
-:BIL REL	is op=0x2E;REL
-{
-	tmp:1 = readIRQ();
-	if (tmp == 0) goto REL;
-}
-
-:BIT OP1     is (op=0xA5 | op=0xB5 | op=0xC5 | op=0xD5 | op=0xE5 | op=0xF5) ... & OP1
-{
-	local result = A & OP1;
+	local result = A & IMM8;
 	Z = (result == 0);
 	N = (result s< 0);
 }
 
-#:BLO REL	is op=0x25;REL		see BCS
+:BITA PTR8 is (op=0x95 | op=0xA5 | op=0xB5) & PTR8
+{
+	local result = A & PTR8;
+	Z = (result == 0);
+	N = (result s< 0);
+}
 
-:BLS REL	is op=0x23;REL
+:BITB IMM8 is op=0xC5 ... & IMM8
+{
+	local result = B & IMM8;
+	Z = (result == 0);
+	N = (result s< 0);
+}
+
+:BITB PTR8 is (op=0xD5 | op=0xE5 | op=0xF5) & PTR8
+{
+	local result = B & PTR8;
+	Z = (result == 0);
+	N = (result s< 0);
+}
+
+#:BLO REL	is op=0x25; REL		see BCS
+
+:BLE REL is op=0x2F; REL
+{
+	local tmp = !C & Z;
+	if (tmp) goto REL;
+}
+
+:BLS REL is op=0x23; REL
 {
 	local tmp = C + Z;
 	if (tmp) goto REL;
 }
 
-:BMC REL	is op=0x2C;REL
+:BLT REL is op=0x2D; REL
 {
-	if (I == 0) goto REL;
+	local tmp = N != V;
+	if (tmp) goto REL;
 }
 
-:BMI REL	is op=0x2B;REL
+:BMI REL is op=0x2B; REL
 {
 	if (N) goto REL;
 }
 
-:BMS REL	is op=0x2D;REL
-{
-	if (I) goto REL;
-}
-
-:BNE REL	is op=0x26;REL
+:BNE REL is op=0x26; REL
 {
 	if (Z == 0) goto REL;
 }
 
-:BPL REL	is op=0x2A;REL
+:BPL REL is op=0x2A; REL
 {
 	if (N == 0) goto REL;
 }
 
-:BRA REL	is op=0x20;REL
+:BRA REL is op=0x20;REL
 {
 	goto REL;
 }
 
-:BRN REL	is op=0x21;REL
+:BRCLR PTR8, IMM8, REL is op=0x8F ... & PTR8 & IMM8 & REL
 {
-}
-
-:BRCLR n,DIRECT,REL		is op4_7=0 & bit_0=1 & n; DIRECT; REL
-{
-	local mask = (1 << n);
-	local result = DIRECT & mask;
+	local mask = IMM8;
+	local result = PTR8 & mask;
 	if (result == 0) goto REL;
 }
 
-:BRSET n,DIRECT,REL		is op4_7=0 & bit_0=0 & n; DIRECT; REL
+:BRCLR PTR8, IMM8, REL is op=0xCF ... & REL & IMM8 & PTR8
 {
-	local mask = (1 << n);
-	local result = DIRECT & mask;
+	local mask = IMM8;
+  local result = PTR8 & mask;
+  if (result == 0) goto REL;
+}
+
+:BRN REL	is op=0x21; REL
+{
+}
+
+:BRSET PTR8, IMM8, REL is op=0x87 ... & REL & IMM8 & PTR8
+{
+	local mask = IMM8;
+	local result = PTR8 & mask;
 	if (result != 0) goto REL;
 }
 
-:BSET n,DIRECT	is op4_7=1 & bit_0=0 & n; DIRECT {
-	local mask = (1 << n);
-	DIRECT = DIRECT | mask;
-}
-
-:BSR REL		is op=0x8D; REL
+:BSR REL is op=0x8D; REL
 {
 	SP=SP-1;
 	*:2 SP = inst_next;
@@ -392,47 +527,95 @@ DIRECT: imm8    is (op=0x14 | op=0x15 | op=0x1D | op_hi=0x9 | op_hi=0xD); imm8 {
 	call REL;
 }
 
-:CLC		is op=0x98
+:CBA is op=0x11
 {
-	C = 0;
-}
-
-:CLI		is op=0x9A
-{
-	I = 0;
-}
-
-:CLRA		is op=0x4F
-{
-	A = 0;
-	Z = 1;
-	N = 0;
-}
-
-:CLRX		is op=0x5F
-{
-	X = 0;
-	Z = 1;
-	N = 0;
-}
-
-:CLR OP1	is (op=0x3F | op=0x6F | op=0x7F) ... & OP1
-{
-	OP1 = 0;
-	Z = 1;
-	N = 0;
-}
-
-:CMP OP1     is (op=0xA1 | op=0xB1 | op=0xC1 | op=0xD1 | op=0xE1 | op=0xF1) ... & OP1
-{
-	local op1 = OP1;
+	local op1 = B;
 	local tmp = A - op1;
 	Z = tmp == 0;
 	N = tmp s< 0;
 	C = (A < op1);
 }
 
-:COMA		is op=0x43
+:CLC is op=0x0C
+{
+	C = 0;
+}
+
+:CLI is op=0x0E
+{
+	I = 0;
+}
+
+:CLRA	is op=0x4F
+{
+	A = 0;
+	Z = 1;
+	N = 0;
+}
+
+:CLRB	is op=0x5F
+{
+	B = 0;
+	Z = 1;
+	N = 0;
+}
+
+:CLR PTR8 is (op=0x6F | op=0x7F) & PTR8
+{
+	PTR8 = 0;
+	Z = 1;
+	N = 0;
+}
+
+:CMPA IMM8 is op=0x81 ... & IMM8
+{
+	local op1 = IMM8;
+	local tmp = A - op1;
+	Z = tmp == 0;
+	N = tmp s< 0;
+	C = (A < op1);
+}
+
+:CMPA PTR8 is (op=0x91 | op=0xA1 | op=0xB1) & PTR8
+{
+	local op1 = PTR8;
+	local tmp = A - op1;
+	Z = tmp == 0;
+	N = tmp s< 0;
+	C = (A < op1);
+}
+
+:CMPB IMM8 is op=0xC1 ... & IMM8
+{
+	local op1 = IMM8;
+	local tmp = B - op1;
+	Z = tmp == 0;
+	N = tmp s< 0;
+	C = (B < op1);
+}
+
+:CMPB PTR8 is (op=0xD1 | op=0xE1 | op=0xF1) & PTR8
+{
+	local op1 = PTR8;
+	local tmp = B - op1;
+	Z = tmp == 0;
+	N = tmp s< 0;
+	C = (B < op1);
+}
+
+:CMPY IMM16 is (op_a=0xCD & op_b=0x8C) ... & IMM16
+{
+	local op1:2 = IMM16;
+	local tmp = Y - op1;
+
+  Y = Y + 1;
+
+	Z = tmp == 0;
+	N = tmp s< 0;
+	C = (Y < op1);
+}
+
+:COMA	is op=0x43
 {
 	A = ~A;
 	Z = (A == 0);
@@ -440,132 +623,321 @@ DIRECT: imm8    is (op=0x14 | op=0x15 | op=0x1D | op_hi=0x9 | op_hi=0xD); imm8 {
 	C = 1;
 }
 
-:COMX		is op=0x53
+:COMB		is op=0x53
 {
-	X = ~X;
-	Z = (X == 0);
-	N = (X s< 0);
+	B = ~B;
+	Z = (B == 0);
+	N = (B s< 0);
 	C = 1;
 }
 
-:COM OP1	is (op=0x33 | op=0x63 | op=0x73) ... & OP1
+:COM PTR8	is (op=0x63 | op=0x73) & PTR8
 {
-	local tmp = ~OP1;
-	OP1 = tmp;
+	local tmp = ~PTR8;
+	PTR8 = tmp;
 	Z = (tmp == 0);
 	N = (tmp s< 0);
 	C = 1;
 }
 
-:CPX OP1     is (op=0xA3 | op=0xB3 | op=0xC3 | op=0xD3 | op=0xE3 | op=0xF3) ... & OP1
+:CPD IMM16 is op=0x1C ... & IMM16
 {
-	local op1 = OP1;
+	local op1 = IMM16;
+	local tmp = D - op1;
+	Z = tmp == 0;
+	N = tmp s< 0;
+	C = (D < op1);
+}
+
+:CPD PTR16 is (op=0x1D | op=0x1F) & PTR16
+{
+	local op1 = PTR16;
+	local tmp = D - op1;
+	Z = tmp == 0;
+	N = tmp s< 0;
+	C = (D < op1);
+}
+
+:CPX IMM16 is op=0x8C ... & IMM16
+{
+	local op1 = IMM16;
 	local tmp = X - op1;
 	Z = tmp == 0;
 	N = tmp s< 0;
 	C = (X < op1);
 }
 
-:DECA		is op=0x4A
+:CPX PTR16 is (op=0x9C | op=0xAC | op=0xBC) & PTR16
+{
+	local op1 = PTR16;
+	local tmp = X - op1;
+	Z = tmp == 0;
+	N = tmp s< 0;
+	C = (X < op1);
+}
+
+:DAA	is op=0x19 unimpl #DECIMAL ADJUST ACCUMULATOR A
+
+:DEC PTR8 is (op=0x6A | op=0x7A) & PTR8
+{
+	local tmp = PTR8 - 1;
+	PTR8 = tmp;
+	Z = (tmp == 0);
+	N = (tmp s< 0);
+}
+
+:DECA	is op=0x4A
 {
 	A = A - 1;
 	Z = (A == 0);
 	N = (A s< 0);
 }
 
-:DECX		is op=0x5A
+:DECB	is op=0x5A
+{
+	B = B - 1;
+	Z = (B == 0);
+	N = (B s< 0);
+}
+
+:DES is op=0x34
+{
+	SP = SP - 1;
+	Z = (SP == 0);
+	N = (SP s< 0);
+}
+
+:DEX is op=0x09
 {
 	X = X - 1;
 	Z = (X == 0);
 	N = (X s< 0);
 }
 
-:DEC OP1	is (op=0x3A | op=0x6A | op=0x7A) ... & OP1
+:DEY is op_a=0xCD & op_b=0x09
 {
-	local tmp = OP1 - 1;
-	OP1 = tmp;
-	Z = (tmp == 0);
-	N = (tmp s< 0);
+	X = X - 1;
+	Z = (X == 0);
+	N = (X s< 0);
 }
 
-:EOR OP1     is (op=0xA8 | op=0xB8 | op=0xC8 | op=0xD8 | op=0xE8 | op=0xF8) ... & OP1
+:EORA IMM8 is (op=0x88) ... & IMM8
 {
-	local op1 = OP1;
+	local op1 = IMM8;
 	A = A ^ op1;
 	Z = A == 0;
 	N = A s< 0;
 }
 
-:INCA		is op=0x4C
+:EORA PTR8 is (op=0x98 | op=0xA8 | op=0xB8) & PTR8
+{
+	local op1 = PTR8;
+	A = A ^ op1;
+	Z = A == 0;
+	N = A s< 0;
+}
+
+:EORB IMM8 is (op=0xC8) ... & IMM8
+{
+	local op1 = IMM8;
+	B = B ^ op1;
+	Z = B == 0;
+	N = B s< 0;
+}
+
+:EORB PTR8 is (op=0xD8 | op=0xE8 | op=0xF8) & PTR8
+{
+	local op1 = PTR8;
+	B = B ^ op1;
+	Z = B == 0;
+	N = B s< 0;
+}
+
+:FDIV PTR8 is op=0x15 & PTR8
+{
+  local numerator:2 = D;
+  local denominator:2 = zext(PTR8);
+  local result = numerator f/ denominator;
+  local remainder = numerator % denominator;
+  B = result:1;
+  A = remainder:1;
+  C = (numerator > denominator);
+}
+
+:IDIV PTR8 is op=0x14 & PTR8
+{
+  local numerator:2 = D;
+  local denominator:2 = zext(PTR8);
+  local result = numerator / denominator;
+  local remainder = numerator % denominator;
+  B = result:1;
+  A = remainder:1;
+  C = (numerator > denominator);
+}
+
+:INC PTR8 is (op=0x6C | op=0x7C) & PTR8
+{
+	local tmp = PTR8 + 1;
+	PTR8 = tmp;
+	Z = (tmp == 0);
+	N = (tmp s< 0);
+}
+
+:INCA	is op=0x4C
 {
 	A = A + 1;
 	Z = (A == 0);
 	N = (A s< 0);
 }
 
-:INCX		is op=0x5C
+:INCB	is op=0x5C
+{
+	B = B + 1;
+	Z = (B == 0);
+	N = (B s< 0);
+}
+
+:INS	is op=0x31
+{
+	SP = SP + 1;
+	Z = (SP == 0);
+	N = (SP s< 0);
+}
+
+:INX	is op=0x08
 {
 	X = X + 1;
 	Z = (X == 0);
 	N = (X s< 0);
 }
 
-:INC OP1	is (op=0x3C | op=0x6C | op=0x7C) ... & OP1
+:INY	is op_a=0xCD & op_b=0x08
 {
-	local tmp = OP1 + 1;
-	OP1 = tmp;
-	Z = (tmp == 0);
-	N = (tmp s< 0);
+	Y = Y + 1;
+	Z = (Y == 0);
+	N = (Y s< 0);
 }
 
-:JMP ADDR	is (op=0x7E | op=0xBC | op=0xCC) ... & ADDR
+:JMP ADDR	is op=0x7E ... & ADDR
 {
 	goto ADDR;
 }
 
-:JMP ADDRI	is (op=0xDC | op=0xEC | op=0xFC) ... & ADDRI
+:JMP ADDRI	is op=0x6E ... & ADDRI
 {
 	goto [ADDRI];
 }
 
-:JSR ADDR	is (op=0xBD | op=0xCD) ... & ADDR
+:JSR ADDR	is (op=0x9D | op=0xBD) ... & ADDR
 {
 	*:2 (SP-1) = inst_next;
 	SP=SP-2;
 	call ADDR;
 }
 
-:JSR ADDRI	is (op=0xDD | op=0xED | op=0xFD) ... & ADDRI
+:JSR ADDRI is op=0xAD ... & ADDRI
 {
 	*:2 (SP-1) = inst_next;
 	SP=SP-2;
 	call [ADDRI];
 }
 
-:LDA OP1     is (op=0xA6 | op=0xB6 | op=0xC6 | op=0xD6 | op=0xE6 | op=0xF6) ... & OP1
+:LDAA IMM8 is op=0x86 ... & IMM8
 {
-	A = OP1;
+	A = IMM8;
 	Z = A == 0;
 	N = A s< 0;
 }
 
-:LDX OP1     is (op=0xAE | op=0xBE | op=0xCE | op=0xDE | op=0xEE | op=0xFE) ... & OP1
+:LDAA PTR8 is (op=0x96 | op=0xA6 | op=0xB6) & PTR8
 {
-	X = OP1;
+	A = PTR8;
+	Z = A == 0;
+	N = A s< 0;
+}
+
+:LDAB IMM8 is op=0xC6 ... & IMM8
+{
+	B = IMM8;
+	Z = B == 0;
+	N = B s< 0;
+}
+
+:LDAB PTR8 is (op=0xD6 | op=0xE6 | op=0xF6) & PTR8
+{
+	B = PTR8;
+	Z = B == 0;
+	N = B s< 0;
+}
+
+:LDD IMM16 is op=0xCC & IMM16
+{
+	D = IMM16;
+	Z = D == 0;
+	N = D s< 0;
+}
+
+:LDD PTR16 is (op=0xDC | op=0xEC | op=0xFC) ... & PTR16
+{
+	D = * PTR16;
+  Z = D == 0;
+	N = D s< 0;
+}
+
+:LDS IMM16 is (op=0x8E) ... & IMM16
+{
+  SP = IMM16; # This is correct
+}
+
+:LDS PTR16 is (op=0x9E | op=0xAE | op=0xBE) ... & PTR16
+{
+  SP = * PTR16;
+}
+
+:LDX IMM16 is op=0xCE & IMM16
+{
+	X = IMM16;
 	Z = X == 0;
 	N = X s< 0;
 }
 
-:LDS ADDR   is op=0x8E ... & ADDR
+:LDX PTR16 is (op=0xDE | op=0xEE | op=0xFE) ... & PTR16
 {
-  *SP = ADDR;
+	X = * PTR16;
+	Z = X == 0;
+	N = X s< 0;
+}
+
+:LDY IMM16 is (op_a=0xCD & op_b=0xCE) & IMM16
+{
+	Y = IMM16;
+	Z = Y == 0;
+	N = Y s< 0;
+}
+
+:LDY PTR16 is (op_a=0xCD & op_b=0xEE) ... & PTR16
+{
+	Y = * PTR16;
+	Z = Y == 0;
+	N = Y s< 0;
 }
 
 ## Logical Shift left is same as arithmetic shift left
 #:LSLA		is op=0x48
 #:LSLX		is op=0x58
-#:LSL OP1	is (op=0x38 | op=0x68 | op=0x78) ... & OP1
-:LSRA		is op=0x44
+#:LSL IMM8	is (op=0x38 | op=0x68 | op=0x78) ... & IMM8
+
+:LSR PTR8	is (op=0x64 | op=0x74) & PTR8
+{
+	local tmp = PTR8;
+	C = tmp & 1;
+	tmp = tmp >> 1;
+	PTR8 = tmp;
+	Z = (tmp == 0);
+	N = 0;
+}
+
+:LSRA	is op=0x44
 {
 	C = A & 1;
 	A = A >> 1;
@@ -573,35 +945,40 @@ DIRECT: imm8    is (op=0x14 | op=0x15 | op=0x1D | op_hi=0x9 | op_hi=0xD); imm8 {
 	N = 0;
 }
 
-:LSRX		is op=0x54
+:LSRB	is op=0x54
 {
-	C = X & 1;
-	X = X >> 1;
-	Z = (X == 0);
+	C = B & 1;
+	A = B >> 1;
+	Z = (B == 0);
 	N = 0;
 }
 
-:LSR OP1	is (op=0x34 | op=0x64 | op=0x74) ... & OP1
+:LSRD	is op=0x04
 {
-	local tmp = OP1;
-	C = tmp & 1;
-	tmp = tmp >> 1;
-	OP1 = tmp;
-	Z = (tmp == 0);
+  C = D:1 & 0x1;
+	D = D >> 1;
+	Z = (D == 0);
 	N = 0;
 }
 
-:MUL		is op=0x42
+:MUL is op=0x3D
 {
-	op1:2 = zext(A);
-	op2:2 = zext(X);
+	op1 = zext(A);
+	op2 = zext(B);
 	local result = op1 * op2;
-	A = result:1;
-	result = result >> 8;
-	X = result:1;
+	X = result;
 }
 
-:NEGA		is op=0x40
+:NEG PTR8 is (op=0x60 | op=0x70) & PTR8
+{
+	local op1 = PTR8;
+	C = op1 != 0;
+	PTR8 = -op1;
+	Z = (op1 == 0);
+	N = (op1 s< 0);
+}
+
+:NEGA	is op=0x40
 {
 	C = A != 0;
 	A = -A;
@@ -609,32 +986,92 @@ DIRECT: imm8    is (op=0x14 | op=0x15 | op=0x1D | op_hi=0x9 | op_hi=0xD); imm8 {
 	N = (A s< 0);
 }
 
-:NEGX		is op=0x50
+:NEGB	is op=0x50
 {
-	C = X != 0;
-	X = -X;
-	Z = (X == 0);
-	N = (X s< 0);
+	C = B != 0;
+	B = -B;
+	Z = (B == 0);
+	N = (B s< 0);
 }
 
-:NEG OP1	is (op=0x30 | op=0x60 | op=0x70) ... & OP1
-{
-	local op1 = OP1;
-	C = op1 != 0;
-	OP1 = -op1;
-	Z = (op1 == 0);
-	N = (op1 s< 0);
-}
-
-:NOP		is op = 0x01
+:NOP is op = 0x01
 {
 }
 
-:ORA OP1     is (op=0xAA | op=0xBA | op=0xCA | op=0xDA | op=0xEA | op=0xFA) ... & OP1
+:ORAA IMM8 is op=0x8A ... & IMM8
 {
-	A = A | OP1;
+	A = A | IMM8;
 	Z = (A == 0);
 	N = (A s< 0);
+}
+
+:ORAA PTR8 is (op=0x9A | op=0xAA | op=0xBA) & PTR8
+{
+	A = A | PTR8;
+	Z = (A == 0);
+	N = (A s< 0);
+}
+
+:ORAB IMM8 is op=0xCA ... & IMM8
+{
+	B = B | IMM8;
+	Z = (B == 0);
+	N = (B s< 0);
+}
+
+:ORAB PTR8 is (op=0xDA | op=0xEA | op=0xFA) & PTR8
+{
+	B = B | PTR8;
+	Z = (B == 0);
+	N = (B s< 0);
+}
+
+:PSHA is op=0x36
+{
+  *:2 SP = A;
+  SP = SP - 1;
+}
+
+:PSHB is op=0x37
+{
+  *:1 SP = B;
+  SP = SP - 1;
+}
+
+:PSHX is op=0x3C
+{
+  *:2 SP = X;
+  SP = SP - 2;
+}
+
+:PULA is op=0x32
+{
+  A = *:1 SP;
+  SP = SP + 1;
+}
+
+:PULB is op=0x33
+{
+  B = *:1 SP;
+  SP = SP + 1;
+}
+
+:PULX is op=0x38
+{
+  X = *:2 SP;
+  SP = SP + 2;
+}
+
+:ROL PTR8 is (op=0x69 | op=0x79) & PTR8
+{
+	local tmpC = C;
+	local op1 = PTR8;
+	C = op1 >> 7;
+	local result = op1 << 1;
+	result = result | tmpC;
+	PTR8 = result;
+	Z = (result == 0);
+	N = (result s< 0);
 }
 
 :ROLA		is op=0x49
@@ -647,26 +1084,14 @@ DIRECT: imm8    is (op=0x14 | op=0x15 | op=0x1D | op_hi=0x9 | op_hi=0xD); imm8 {
 	N = (A s< 0);
 }
 
-:ROLX		is op=0x59
+:ROLB		is op=0x59
 {
-	local tmp = C;
-	C = X >> 7;
-	X = X << 1;
-	X = X | tmp;
-	Z = (X == 0);
-	N = (X s< 0);
-}
-
-:ROL OP1	is (op=0x39 | op=0x69 | op=0x79) ... & OP1
-{
-	local tmpC = C;
-	local op1 = OP1;
-	C = op1 >> 7;
-	local result = op1 << 1;
-	result = result | tmpC;
-	OP1 = result;
-	Z = (result == 0);
-	N = (result s< 0);
+	local tmp = B ;
+	C = B >> 7;
+	B = B << 1;
+	B = B | tmp;
+	Z = (B == 0);
+	N = (B s< 0);
 }
 
 :RORA		is op=0x46
@@ -679,34 +1104,29 @@ DIRECT: imm8    is (op=0x14 | op=0x15 | op=0x1D | op_hi=0x9 | op_hi=0xD); imm8 {
 	N = (A s< 0);
 }
 
-:RORX		is op=0x56
+:RORB		is op=0x56
 {
 	local tmpC = C << 7;
-	C = X & 1;
-	X = X s>> 1;
-	X = X | tmpC;
-	Z = (X == 0);
-	N = (X s< 0);
+	C = B & 1;
+	B = B s>> 1;
+	B = B | tmpC;
+	Z = (B == 0);
+	N = (B s< 0);
 }
 
-:ROR OP1	is (op=0x36 | op=0x66 | op=0x76) ... & OP1
+:ROR PTR8	is (op=0x66 | op=0x76) & PTR8
 {
 	local tmpC = C << 7;
-	local tmp = OP1;
+	local tmp = PTR8;
 	C = tmp & 1;
 	tmp = tmp s>> 1;
 	tmp = tmp | tmpC;
-	OP1 = tmp;
+	PTR8 = tmp;
 	Z = (tmp == 0);
 	N = (tmp s< 0);
 }
 
-:RSP		is op = 0x9C
-{
-	SP = 0xff;
-}
-
-:RTI		is op = 0x80
+:RTI		is op = 0x3B
 {
 	SP = SP+1;
 	local ccr = *:1 SP;
@@ -728,7 +1148,7 @@ DIRECT: imm8    is (op=0x14 | op=0x15 | op=0x1D | op_hi=0x9 | op_hi=0xD); imm8 {
 	return [tmp];
 }
 
-:RTS		is op = 0x81
+:RTS		is op = 0x39
 {
 	SP = SP+1;
 	tmp:2 = *:2 SP;
@@ -737,9 +1157,18 @@ DIRECT: imm8    is (op=0x14 | op=0x15 | op=0x1D | op_hi=0x9 | op_hi=0xD); imm8 {
 	return [tmp];
 }
 
-:SBC OP1     is (op=0xA2 | op=0xB2 | op=0xC2 | op=0xD2 | op=0xE2 | op=0xF2) ... & OP1
+:SBA is op=0x10
 {
-	local op1 = OP1;
+  C = (A < B);
+  A = A - B;
+  Z = A == 0;
+  N = A s< 0;
+  A = A;
+}
+
+:SBCA IMM8 is op=0x82 ... & IMM8
+{
+	local op1 = IMM8;
 	local tmp = A - op1 - C;
 	Z = tmp == 0;
 	N = tmp s< 0;
@@ -747,59 +1176,96 @@ DIRECT: imm8    is (op=0x14 | op=0x15 | op=0x1D | op_hi=0x9 | op_hi=0xD); imm8 {
 	A = tmp;
 }
 
-:SEC 		is op = 0x0D
+:SBCA PTR8 is (op=0x92 | op=0xA2 | op=0xB2) & PTR8
+{
+	local op1 = PTR8;
+	local tmp = A - op1 - C;
+	Z = tmp == 0;
+	N = tmp s< 0;
+	C = ((A <= op1) * C) | (A < op1);
+	A = tmp;
+}
+
+:SBCB IMM8 is op=0xC2 ... & IMM8
+{
+	local op1 = IMM8;
+	local tmp = B - op1 - C;
+	Z = tmp == 0;
+	N = tmp s< 0;
+	C = ((B <= op1) * C) | (B < op1);
+	B = tmp;
+}
+
+:SBCB PTR8 is (op=0xD2 | op=0xE2 | op=0xF2) & PTR8
+{
+	local op1 = PTR8;
+	local tmp = B - op1 - C;
+	Z = tmp == 0;
+	N = tmp s< 0;
+	C = ((B <= op1) * C) | (B < op1);
+	B = tmp;
+}
+
+:SEC is op = 0x0D
 {
 	C = 1;
 }
 
-:SEI 		is op = 0x0F
+:SEI is op = 0x0F
 {
 	I = 1;
 }
 
-:STAA OP1	is ((op_hi>0x8 & op_hi<0xD) & op_lo=0x7) ... & OP1
+:SEV is op = 0x0B
 {
-	OP1 = A;
+	V = 1;
+}
+
+:STAA PTR8 is (op=0x97 | op=0xA7 | op=0xB7) & PTR8
+{
+	PTR8 = A;
 	Z = A == 0;
 	N = A s< 0;
 }
 
-:STAB OP1	is ((op_hi>0xC & op_hi<=0xF) & op_lo=0x7) ... & OP1
+:STAB PTR8	is (op=0xD7 | op=0xE7 | op=0xF7) & PTR8
 {
-	OP1 = B;
+	PTR8 = B;
 	Z = B == 0;
 	N = B s< 0;
 }
 
-#:STD OP1	is (op=0xDD) ... & OP1
-#{
-#	OP1 = D;
-#	Z = D == 0;
-#	N = D s< 0;
-#}
-
-#:STD OP1	is ((op_hi>0xD & op_hi<=0xF) & op_lo=0xD) ... & OP1
-#{
-#	OP1 = D;
-#	Z = D == 0;
-#	N = D s< 0;
-#}
-
-#:STOP		is op=0x8E
-#{
-#	I = 0;
-#}
-
-:STX OP1	is (op=0xBF | op=0xCF | op=0xDF | op=0xEF | op=0xFF) ... & OP1
+:STD PTR16 is (op=0xDD | op=0xED | op=0xFD) ... & PTR16
 {
-	OP1 = X;
+  * PTR16 = D;
+	Z = D == 0;
+	N = D s< 0;
+}
+
+:STS PTR16 is (op=0x9F | op=0xAF | op=0xBF) ... & PTR16
+{
+  * PTR16 = SP;
+	Z = SP == 0;
+	N = SP s< 0;
+}
+
+:STX PTR16	is (op=0xDF | op=0xEF | op=0xFF) ... & PTR16
+{
+	* PTR16 = X;
 	Z = X == 0;
 	N = X s< 0;
 }
 
-:SUB OP1     is (op=0xA0 | op=0xB0 | op=0xC0 | op=0xD0 | op=0xE0 | op=0xF0) ... & OP1
+:STY PTR16 is (op_a=0xCD & op_b=0xDF) ... & PTR16
 {
-	local op1 = OP1;
+	* PTR16 = Y;
+	Z = Y == 0;
+	N = Y s< 0;
+}
+
+:SUBA IMM8 is op=0x80 ... & IMM8
+{
+	local op1 = IMM8;
 	C = (A < op1);
 	A = A - op1;
 	Z = A == 0;
@@ -807,7 +1273,57 @@ DIRECT: imm8    is (op=0x14 | op=0x15 | op=0x1D | op_hi=0x9 | op_hi=0xD); imm8 {
 	A = A;
 }
 
-:SWI		is op=0x83
+:SUBA PTR8 is (op=0x90 | op=0xA0 | op=0xB0) & PTR8
+{
+	local op1 = PTR8;
+	C = (A < op1);
+	A = A - op1;
+	Z = A == 0;
+	N = A s< 0;
+	A = A;
+}
+
+:SUBB IMM8 is op=0xC0 ... & IMM8
+{
+	local op1 = IMM8;
+	C = (B < op1);
+	B = B - op1;
+	Z = B == 0;
+	N = B s< 0;
+	B = B;
+}
+
+:SUBB PTR8 is (op=0xD0 | op=0xE0 | op=0xF0) & PTR8
+{
+	local op1 = PTR8;
+	C = (B < op1);
+	B = B - op1;
+	Z = B == 0;
+	N = B s< 0;
+	B = B;
+}
+
+:SUBD IMM16 is op=0x83 ... & IMM16
+{
+	local op1 = IMM16;
+	C = (D < op1);
+	D = D - op1;
+	Z = D == 0;
+	N = D s< 0;
+	D = D;
+}
+
+:SUBD PTR16 is (op=0x93 | op=0xA3 | op=0xB3) ... & PTR16
+{
+	local op1 = PTR16;
+	C = (D < op1);
+	D = D - op1;
+	Z = D == 0;
+	N = D s< 0;
+	D = D;
+}
+
+:SWI is op=0x3F
 {
 	SP=SP-1;
 	*:2 SP = inst_next;
@@ -819,38 +1335,82 @@ DIRECT: imm8    is (op=0x14 | op=0x15 | op=0x1D | op_hi=0x9 | op_hi=0xD); imm8 {
 	SP=SP-1;
 	*:1 SP = tmp;
 	I = 1;
-	call [SWI_VECTOR];
+	#call [SWI_VECTOR];
+}
+
+:TAB is op=0x16
+{
+  A = B;
+}
+
+:TAP is op=0x06 unimpl
+
+:TBA is op=0x17
+{
+  B = A;
 }
 
 :TEST	is op=0x00
 {
 }
 
-:TSTA		is op=0x4D
+:TPA is op=0x07 unimpl
+
+:TST PTR8 is (op=0x6D |op=0x7D) & PTR8
+{
+	local op1 = PTR8;
+	Z = (op1 == 0);
+	N = (op1 s< 0);
+}
+
+:TSTA	is op=0x4D
 {
 	Z = (A == 0);
 	N = (A s< 0);
 }
 
-:TSTX		is op=0x5D
+:TSTB	is op=0x5D
 {
-	Z = (X == 0);
-	N = (X s< 0);
+	Z = (B == 0);
+	N = (B s< 0);
 }
 
-:TST OP1	is (op=0x3D | op=0x6D | op=0x7D) ... & OP1
+:TSX is op=0x30
 {
-	local op1 = OP1;
-	Z = (op1 == 0);
-	N = (op1 s< 0);
+  local tmp:2 = SP;
+  SP = X;
+  X = tmp;
 }
 
-:TXA	is op=0x9F
+:TXS is op=0x35
 {
-	A = X;
+  local tmp:2 = X;
+  X = SP;
+  SP = tmp;
 }
 
-:WAIT	is op=0x8f
+:WAI	is op=0x3E
 {
 	I = 0;
+}
+
+:XGDX is op=0x1A
+{
+  local tmp:2 = D;
+  D = X;
+  X = tmp;
+}
+
+:XGDY is op_a=0xCD & op_b=0x1A
+{
+  local tmp:2 = D;
+  D = Y;
+  Y = tmp;
+}
+
+:XGXY is op=0x18
+{
+  local tmp:2 = Y;
+  Y = X;
+  X = tmp;
 }
