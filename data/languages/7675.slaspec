@@ -22,7 +22,7 @@ define alignment=1;
 
 define space RAM      type=ram_space      size=2  default;
 define space register type=register_space size=1;
-#define space ROM      type=rom_space      size=2;
+#define space ROM      type=ram_space      size=2;
 
 define register offset=0x00 size=1 [ A B ];
 define register offset=0x00 size=2 [ D ];
@@ -30,7 +30,9 @@ define register offset=0x10 size=2 [ X Y ];
 define register offset=0x20 size=2 [ PC SP ];
 define register offset=0x30 size=1 [ H I N Z V C ];	# status bits
 
+#
 #TOKENS
+#
 
 #define token tokenname ( integer )
 #  fieldname=(integer,integer) attributelist
@@ -69,20 +71,22 @@ define token data24 (24)
    rel_2   = (0,7) signed
 ;
 
-################################################################
+#
 # Psuedo Instructions
-################################################################
+#
 
 #define pcodeop readIRQ;
 
-################################################################
+#
+# Tables
+#
 
 #Table header
 #      #Display   #Bit Pattern                    #Action                       #Semantics
 #TABLE:DISPLAY is (MATCH & MATCH | MATCH); MATCH  [ reloc = inst_next + FEILD ] { export *:N FIELD; }
 ###
 
-REL:    reloc		is rel	[ reloc = inst_next + rel; ] { export *:2 reloc; }
+REL:    reloc		is rel	[ reloc = inst_next + rel; ] { export *:2 reloc; } #{ export *[ROM]:2 reloc; }
 
 #Immediate 8 - 02, 03, & 0x8*
 IMM8: "#"byte8
@@ -90,12 +94,13 @@ is ((op=0x80 | op=0x81 | op=0x82 | op=0x84 | op=0x85 | op=0x86 | op=0x88 | op=0x
 (op=0xC0 | op=0xC1 | op=0xC2 | op=0xC4 | op=0xC5 | op=0xC6 | op=0xC7 | op=0xC8 | op=0xC9 | op=0xCA | op=0xCB));
 byte8
 {
-  tmp:1 = byte8;
-  export tmp;
+  #tmp:1 = byte8;
+  #export tmp;
+  export *[const]:1 byte8;
 } #IMMEDIATE/8
 
 IMM8: "#"byte16_a
-is (op=0x02 | op=0x03); byte16_a { tmp:1 = byte16_a; export tmp; } #IMMEDIATE/8
+is (op=0x02 | op=0x03); byte16_a { export *[const]:1 byte16_a; } #{ tmp:1 = byte16_a; export tmp; } #IMMEDIATE/8
 
 #Immediate 16
 IMM16: "#"byte16
@@ -111,8 +116,9 @@ IMM16: "#"byte16
 is (op_a=0xCD & (op_b=0x08 | op_b=0x09 | op_b=0x1A | op_b=0x3A | op_b=0x8C | op_b=0xCE | op_b=0xDF | op_b=0xEE));
 byte16
 {
-  tmp:2 = byte16;
-  export tmp;
+  #tmp:2 = byte16;
+  #export tmp;
+  export *[const]:2 byte16;
 } #IMMEDIATE/16
 
 #DIRECT/8
@@ -138,11 +144,12 @@ PTR16: byte8  is (op=0x9E | op=0x9F); byte8 { export *:2 byte8; }      #LDS, STS
 PTR16: byte8  is (op_a=0xCD & op_b=0xDF); byte8 { export *:2 byte8; }  #STY
 
 # [ EXTENDED ]
-PTR16: byte16 is (op=0xF3 | op=0xB3); byte16 { export *:2 byte16; }    #ADDD, SUBD
-PTR16: byte16 is (op=0x1F | op=0xBC); byte16 { export *:2 byte16; }    #CPD, CPX
-PTR16: byte16 is (op=0xFC | op=0xFD); byte16 { export *:2 byte16; }    #LDD, STD
-PTR16: byte16 is (op=0xFE | op=0xFF); byte16 { export *:2 byte16; }    #LDX, STX
-PTR16: byte16 is (op=0xBE | op=0xBF); byte16 { export *:2 byte16; }    #LDS, STS
+PTR16: byte16 is (op=0xF3 | op=0xB3); byte16 { export *:2 byte16; }      #ADDD, SUBD
+PTR16: byte16 is (op=0x1F | op=0xBC); byte16 { export *:2 byte16; }      #CPD, CPX
+PTR16: byte16 is (op=0xFC | op=0xFD); byte16 { export *:2 byte16; }      #LDD, STD
+PTR16: byte16 is (op=0xFE | op=0xFF); byte16 { export *:2 byte16; }      #LDX, STX
+PTR16: byte16 is (op=0xBE | op=0xBF); byte16 { export *:2 byte16; }      #LDS, STS
+PTR16: byte16 is (op_a=0xCD & op_b=0xFE); byte16 { export *:2 byte16; }  #LDY
 
 # [ INDEXED X ]
 PTR16: byte8,X  is (op=0xE3 | op=0xA3) & X; byte8 { tmp:2 = byte8 + X; export *:2 tmp; }      #ADDD, SUBD
@@ -159,8 +166,8 @@ PTR16: Y  is ((op_a=0xEC | op_a=0xED) & op_b=0x80) & Y { export *:2 Y; }      #L
 PTR16: Y  is ((op_a=0xEE | op_a=0xEF) & op_b=0x80) & Y { export *:2 Y; }      #LDX, STX
 PTR16: Y  is ((op_a=0xAE | op_a=0xAF) & op_b=0x80) & Y { export *:2 Y; }      #LDS, STS
 
-ADDR:   byte8 		is op=0x9D;     byte8	{ export *:1 byte8; }
-ADDR:   byte16   is (op=0x7E | op=0xBD); byte16 { export *:1 byte16; }
+ADDR:   byte8 		is op=0x9D;     byte8	{ export *:1 byte8; } #{ export *[ROM]:1 byte8; }
+ADDR:   byte16   is (op=0x7E | op=0xBD); byte16 { export *:1 byte16; } #{ export *[ROM]:1 byte16; }
 
 ADDRI:  byte8,X  is (op=0x6E | op=0xAD) & X; byte8  { tmp:2 = byte8 + X; export tmp; }
 
@@ -170,11 +177,12 @@ PTR8: byte_a,X  is (op=0xCF) & X; byte_a { tmp:2 = byte_a + X; export *:1 tmp; }
 
 IMM8: "#"byte_b is (op=0x87 | op=0x8F | op=0xCF); byte_b
 {
-  tmp:1 = byte_b;
-  export tmp;
+  #tmp:1 = byte_b;
+  #export tmp;
+  export *[const]:1 byte_b;
 }
 
-REL: reloc is (op=0x87 | op=0x8F | op=0xCF); rel_2 [ reloc = inst_next + rel_2; ] { export *:2 reloc; }
+REL: reloc is (op=0x87 | op=0x8F | op=0xCF); rel_2 [ reloc = inst_next + rel_2; ] { export *:2 reloc; } #{ export *[ROM]:2 reloc; }
 
 :OIM PTR8, IMM8 is op=0x03 ... & PTR8 & IMM8
 {
@@ -524,7 +532,7 @@ macro add16(reg, data)
 :BSR REL is op=0x8D; REL
 {
 	*:2 SP = inst_next;
-	SP=SP-2;
+  SP = SP - 2;
 	goto REL;
 }
 
@@ -832,14 +840,14 @@ macro add16(reg, data)
 :JSR ADDR	is (op=0x9D | op=0xBD) ... & ADDR
 {
 	*:2 SP = inst_next;
-	SP=SP-2;
+  SP = SP - 2;
 	call ADDR;
 }
 
 :JSR ADDRI is op=0xAD ... & ADDRI
 {
 	*:2 SP = inst_next;
-	SP=SP-2;
+  SP = SP - 2;
 	call [ADDRI];
 }
 
@@ -916,7 +924,7 @@ macro add16(reg, data)
 	N = Y s< 0;
 }
 
-:LDY PTR16 is (op_a=0xCD & op_b=0xEE) ... & PTR16
+:LDY PTR16 is (op_a=0xCD & (op_b=0xEE | op_b=0xFE)) ... & PTR16
 {
 	Y = *:2 PTR16;
 	Z = Y == 0;
@@ -1029,13 +1037,13 @@ macro add16(reg, data)
 
 :PSHA is op=0x36
 {
-  *:2 SP = A;
+  *:1 SP = A;
   SP = SP - 1;
 }
 
 :PSHB is op=0x37
 {
-  *:2 SP = B;
+  *:1 SP = B;
   SP = SP - 1;
 }
 
@@ -1047,20 +1055,20 @@ macro add16(reg, data)
 
 :PULA is op=0x32
 {
-  A = *:1 SP;
   SP = SP + 1;
+  A = *:1 SP;
 }
 
 :PULB is op=0x33
 {
-  B = *:1 SP;
   SP = SP + 1;
+  B = *:1 SP;
 }
 
 :PULX is op=0x38
 {
-  X = *:2 SP;
   SP = SP + 2;
+  X = *:2 SP;
 }
 
 :ROL PTR8 is (op=0x69 | op=0x79) & PTR8
@@ -1151,8 +1159,8 @@ macro add16(reg, data)
 
 :RTS		is op = 0x39
 {
+  SP = SP + 2;
 	tmp:2 = *:2 SP;
-	SP = SP+2;
 
 	return [tmp];
 }
@@ -1340,14 +1348,14 @@ macro add16(reg, data)
 
 :TAB is op=0x16
 {
-  A = B;
+  B = A;
 }
 
 :TAP is op=0x06 unimpl
 
 :TBA is op=0x17
 {
-  B = A;
+  A = B;
 }
 
 :TEST	is op=0x00
