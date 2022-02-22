@@ -100,7 +100,7 @@ byte8
 } #IMMEDIATE/8
 
 IMM8: "#"byte16_a
-is (op=0x02 | op=0x03); byte16_a { export *[const]:1 byte16_a; } #{ tmp:1 = byte16_a; export tmp; } #IMMEDIATE/8
+is (op=0x02 | op=0x03 | op=0x12 | op=0x13); byte16_a { export *[const]:1 byte16_a; } #{ tmp:1 = byte16_a; export tmp; } #IMMEDIATE/8
 
 #Immediate 16
 IMM16: "#"byte16
@@ -130,7 +130,7 @@ PTR8: byte8    is (op=0x14 | op=0x15 | op=0x1D | op_hi=0x9 | op_hi=0xD); byte8 {
 PTR8: byte16   is (op_hi=0x7 | op_hi=0xB | op_hi=0xF); byte16 { export *:1 byte16; }
 
 #INDEXED-X/8
-PTR8: byte8,X  is (op_hi=0x6 | op_hi=0xA | op_hi=0xE) & X; byte8 { tmp:2 = byte8 + X; export *:1 tmp; }
+PTR8: byte8,X    is (op_hi=0x6 | op_hi=0xA | op_hi=0xE) & X; byte8 { tmp:2 = byte8 + X; export *:1 tmp; }
 
 #INDEXED-Y/8
 PTR8: Y is ((op_a_hi=0xA | op_a_hi=0xE) & op_b=0x80) & Y { export *:1 Y; }
@@ -158,6 +158,7 @@ PTR16: byte8,X  is (op=0xEC | op=0xED) & X; byte8 { tmp:2 = byte8 + X; export *:
 PTR16: byte8,X  is (op=0xEE | op=0xEF) & X; byte8 { tmp:2 = byte8 + X; export *:2 tmp; }      #LDX, STX
 PTR16: byte8,X  is (op=0xAE | op=0xAF) & X; byte8 { tmp:2 = byte8 + X; export *:2 tmp; }      #LDS, STS
 PTR16: byte8,X  is (op_a=0xCD & op_b=0xEE) & X; byte8 { tmp:2 = byte8 + X; export *:2 tmp; }  #LDY
+PTR16: byte16_b,X is (op=0x12 | op=0x13) & X; byte16_b { tmp:2 = byte16_b + X; export *:2 tmp; } #AIM, ORM
 
 # [ INDEXED Y ]
 PTR16: Y  is ((op_a=0xE3 | op_a=0xA3) & op_b=0x80) & Y { export *:2 Y; }      #ADDD, SUBD
@@ -188,6 +189,8 @@ REL: reloc is (op=0x87 | op=0x8F | op=0xCF); rel_2 [ reloc = inst_next + rel_2; 
 {
   PTR8 = PTR8 | IMM8;
 }
+
+:OIM PTR16, IMM8 is op=0x13 ... & PTR16 & IMM8 {}
 
 macro adc8(reg, data)
 {
@@ -311,6 +314,8 @@ macro add16(reg, data)
 {
   PTR8 = PTR8 & IMM8;
 }
+
+:AIM PTR16, IMM8 is op=0x12 ... & PTR16 & IMM8 {}
 
 :ANDA IMM8 is op=0x84 ... & IMM8
 {
